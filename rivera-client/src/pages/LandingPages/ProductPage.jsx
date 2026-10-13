@@ -1,6 +1,6 @@
+
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-
 import Button from "../../components/Button.jsx";
 import { request } from "../../services/api.js";
 import { getProductById } from "../../services/productService.js";
@@ -167,7 +167,8 @@ function ProductPage() {
     );
   }
 
-  const productImage = getProductImage(product.name);
+  const productImage =
+    product.imageUrl || getProductImage(product.name);
 
   return (
     <div className="flex w-full flex-col gap-6">

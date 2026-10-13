@@ -1,8 +1,9 @@
+
 import Button from "./Button";
 import getProductImage from "../utils/productImages";
 
 const ProductCard = ({ product, index }) => {
-  const productImage = getProductImage(product.name);
+  const productImage = product.imageUrl || getProductImage(product.name);
 
   return (
     <article className="rounded-3xl border-2 border-zinc-900 bg-zinc-100 p-4">
