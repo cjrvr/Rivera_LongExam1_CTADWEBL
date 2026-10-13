@@ -2,6 +2,27 @@ require("../models/categoryModel");
 
 const Product = require("../models/productModel");
 const { HttpStatus } = require("../config/constants");
+const cloudinary = require("../config/cloudinary");
+
+const uploadToCloudinary = (fileBuffer) => {
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      {
+        folder: "bulldogs-exchange/products",
+        resource_type: "image",
+      },
+      (error, result) => {
+        if (error) {
+          return reject(error);
+        }
+
+        resolve(result);
+      }
+    );
+
+    uploadStream.end(fileBuffer);
+  });
+};
 
 const createProduct = async (req, res) => {
   try {
@@ -27,6 +48,15 @@ const createProduct = async (req, res) => {
       });
     }
 
+    let imageUrl = "";
+    let imagePublicId = "";
+
+    if (req.file) {
+      const uploadResult = await uploadToCloudinary(req.file.buffer);
+      imageUrl = uploadResult.secure_url;
+      imagePublicId = uploadResult.public_id;
+    }
+
     const newProduct = new Product({
       name,
       description,
@@ -34,13 +64,13 @@ const createProduct = async (req, res) => {
       stockQuantity,
       category,
       seller: req.user._id,
+      imageUrl,
+      imagePublicId,
     });
 
     const savedProduct = await newProduct.save();
 
-    const populatedProduct = await Product.findById(
-      savedProduct._id
-    )
+    const populatedProduct = await Product.findById(savedProduct._id)
       .populate("category")
       .populate("seller", "-password");
 
@@ -75,9 +105,7 @@ const getAllProducts = async (req, res) => {
     let sortQuery = "name";
 
     if (req.query.sort) {
-      sortQuery = req.query.sort
-        .split(",")
-        .join(" ");
+      sortQuery = req.query.sort.split(",").join(" ");
     }
 
     const page = parseInt(req.query.page) || 1;
@@ -91,8 +119,7 @@ const getAllProducts = async (req, res) => {
       .skip(skip)
       .limit(limit);
 
-    const totalProducts =
-      await Product.countDocuments(queryObj);
+    const totalProducts = await Product.countDocuments(queryObj);
 
     res.status(HttpStatus.OK).json({
       success: true,
@@ -104,9 +131,7 @@ const getAllProducts = async (req, res) => {
       data: products,
     });
   } catch (error) {
-    res.status(
-      HttpStatus.INTERNAL_SERVER_ERROR
-    ).json({
+    res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
       success: false,
       message: error.message,
     });
@@ -115,9 +140,7 @@ const getAllProducts = async (req, res) => {
 
 const getProductById = async (req, res) => {
   try {
-    const product = await Product.findById(
-      req.params.id
-    )
+    const product = await Product.findById(req.params.id)
       .populate("category")
       .populate("seller", "-password");
 
@@ -143,8 +166,30 @@ const getProductById = async (req, res) => {
 const updateProduct = async (req, res) => {
   try {
     delete req.body.seller;
+    delete req.body.imageUrl;
+    delete req.body.imagePublicId;
 
-    const product = await Product.findByIdAndUpdate(
+    const product = await Product.findById(req.params.id);
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    if (req.file) {
+      if (product.imagePublicId) {
+        await cloudinary.uploader.destroy(product.imagePublicId);
+      }
+
+      const uploadResult = await uploadToCloudinary(req.file.buffer);
+
+      req.body.imageUrl = uploadResult.secure_url;
+      req.body.imagePublicId = uploadResult.public_id;
+    }
+
+    const updatedProduct = await Product.findByIdAndUpdate(
       req.params.id,
       req.body,
       {
@@ -155,6 +200,30 @@ const updateProduct = async (req, res) => {
       .populate("category")
       .populate("seller", "-password");
 
+    res.status(200).json({
+      success: true,
+      message: "Product updated successfully",
+      data: updatedProduct,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+const uploadProductImage = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "Please select an image to upload",
+      });
+    }
+
+    const product = await Product.findById(req.params.id);
+
     if (!product) {
       return res.status(404).json({
         success: false,
@@ -162,13 +231,26 @@ const updateProduct = async (req, res) => {
       });
     }
 
+    if (product.imagePublicId) {
+      await cloudinary.uploader.destroy(product.imagePublicId);
+    }
+
+    const uploadResult = await uploadToCloudinary(req.file.buffer);
+
+    product.imageUrl = uploadResult.secure_url;
+    product.imagePublicId = uploadResult.public_id;
+
+    await product.save();
+
     res.status(200).json({
       success: true,
-      message: "Product updated successfully",
+      message: "Product image uploaded successfully",
+      imageUrl: product.imageUrl,
+      publicId: product.imagePublicId,
       data: product,
     });
   } catch (error) {
-    res.status(400).json({
+    res.status(500).json({
       success: false,
       message: error.message,
     });
@@ -180,4 +262,5 @@ module.exports = {
   getAllProducts,
   getProductById,
   updateProduct,
+  uploadProductImage,
 };

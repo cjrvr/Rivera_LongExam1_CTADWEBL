@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+
 import { request } from "../services/api";
 import getProductImage from "../utils/productImages";
 
@@ -10,6 +11,8 @@ const AdminProductsPage = () => {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [editingId, setEditingId] = useState(null);
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState("");
 
   const [formData, setFormData] = useState({
     name: "",
@@ -35,11 +38,56 @@ const AdminProductsPage = () => {
     loadProducts();
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (imagePreview && imagePreview.startsWith("blob:")) {
+        URL.revokeObjectURL(imagePreview);
+      }
+    };
+  }, [imagePreview]);
+
   const handleChange = (event) => {
     setFormData({
       ...formData,
       [event.target.name]: event.target.value,
     });
+  };
+
+  const handleImageChange = (event) => {
+    const file = event.target.files[0];
+
+    setError("");
+
+    if (!file) {
+      setImageFile(null);
+      setImagePreview("");
+      return;
+    }
+
+    const allowedTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+    ];
+
+    if (!allowedTypes.includes(file.type)) {
+      setImageFile(null);
+      setImagePreview("");
+      event.target.value = "";
+      setError("Only JPG, JPEG, PNG, and WEBP images are allowed.");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setImageFile(null);
+      setImagePreview("");
+      event.target.value = "";
+      setError("Image must be 5 MB or smaller.");
+      return;
+    }
+
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
   };
 
   const resetForm = () => {
@@ -52,6 +100,8 @@ const AdminProductsPage = () => {
     });
 
     setEditingId(null);
+    setImageFile(null);
+    setImagePreview("");
   };
 
   const handleSubmit = async (event) => {
@@ -61,25 +111,29 @@ const AdminProductsPage = () => {
     setError("");
 
     try {
-      const payload = {
-        name: formData.name,
-        description: formData.description,
-        price: Number(formData.price),
-        stockQuantity: Number(formData.stockQuantity),
-        category: formData.category,
-      };
+      const payload = new FormData();
+
+      payload.append("name", formData.name);
+      payload.append("description", formData.description);
+      payload.append("price", formData.price);
+      payload.append("stockQuantity", formData.stockQuantity);
+      payload.append("category", formData.category);
+
+      if (imageFile) {
+        payload.append("image", imageFile);
+      }
 
       if (editingId) {
         await request(`/product/${editingId}`, {
           method: "PUT",
-          body: JSON.stringify(payload),
+          body: payload,
         });
 
         setMessage("Product updated successfully.");
       } else {
         await request("/product", {
           method: "POST",
-          body: JSON.stringify(payload),
+          body: payload,
         });
 
         setMessage("Product created successfully.");
@@ -102,6 +156,11 @@ const AdminProductsPage = () => {
       stockQuantity: product.stockQuantity || "",
       category: product.category?._id || "",
     });
+
+    setImageFile(null);
+    setImagePreview(
+      product.imageUrl || getProductImage(product.name) || ""
+    );
 
     window.scrollTo({
       top: 0,
@@ -231,14 +290,45 @@ const AdminProductsPage = () => {
             />
           </div>
 
+          <div className="md:col-span-2">
+            <label className="text-sm font-medium text-[#18244A]">
+              Product Image
+            </label>
+
+            <input
+              type="file"
+              accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+              onChange={handleImageChange}
+              className={inputClasses}
+            />
+
+            <p className="mt-2 text-xs text-zinc-500">
+              JPG, JPEG, PNG, or WEBP only. Maximum size: 5 MB.
+            </p>
+          </div>
+
+          {imagePreview && (
+            <div className="md:col-span-2">
+              <p className="mb-2 text-sm font-medium text-[#18244A]">
+                Image Preview
+              </p>
+
+              <div className="flex h-52 w-52 items-center justify-center overflow-hidden rounded-2xl border-2 border-[#C8A437] bg-white">
+                <img
+                  src={imagePreview}
+                  alt="Product preview"
+                  className="h-full w-full object-contain p-2"
+                />
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-3 md:col-span-2">
             <button
               type="submit"
               className="rounded-xl border-2 border-[#18244A] bg-[#18244A] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#243665]"
             >
-              {editingId
-                ? "Update Product"
-                : "Create Product"}
+              {editingId ? "Update Product" : "Create Product"}
             </button>
 
             {editingId && (
@@ -265,7 +355,8 @@ const AdminProductsPage = () => {
 
         <div className="mt-6 space-y-4">
           {products.map((product) => {
-            const productImage = getProductImage(product.name);
+            const productImage =
+              product.imageUrl || getProductImage(product.name);
 
             return (
               <div
